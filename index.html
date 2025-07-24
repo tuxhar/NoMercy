@@ -1,36 +1,129 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>No Mercy Habit Tracker</title>
-
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>No Mercy App</title>
+  <!-- Firebase CDNs -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+  
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: url('https://images.alphacoders.com/128/1280491.jpg') no-repeat center center fixed;
+      background-size: cover;
+      color: white;
+    }
+    /* Add your other styles here */
+  </style>
+</head>
+<body>
+  <div id="root"></div>
 
   <script>
+    // Firebase configuration
     const firebaseConfig = {
       apiKey: "AIzaSyB3GgAgQvcuWElNsrZ0FaZSSYoPY0tnSTw",
       authDomain: "no-mercy-28e0a.firebaseapp.com",
       projectId: "no-mercy-28e0a",
-      storageBucket: "no-mercy-28e0a.firebasestorage.app",
+      storageBucket: "no-mercy-28e0a.appspot.com",
       messagingSenderId: "353208485106",
       appId: "1:353208485106:web:bc33f4d201cbfd95f8fc6b",
       measurementId: "G-DT0SXRFFGR"
     };
 
+    // Initialize Firebase
     firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const provider = new firebase.auth.GoogleAuthProvider();
 
-    // Global references
-    window.auth = firebase.auth();
-    window.db = firebase.firestore();
-    window.provider = new firebase.auth.GoogleAuthProvider();
+    // Your application logic
+    let user = null;
+    let tasks = {};
+    
+    function renderApp() {
+      const root = document.getElementById('root');
+      if (!user) {
+        root.innerHTML = `
+          <div class="login-screen" style="height: 100vh; display: flex; justify-content: center; align-items: center;">
+            <button onclick="handleGoogleLogin()" style="padding: 12px 24px; background: #4285F4; color: white; border: none; border-radius: 4px; font-size: 16px;">
+              Login with Google
+            </button>
+          </div>
+        `;
+        return;
+      }
+      
+      // Main app UI
+      root.innerHTML = `
+        <div class="app-container">
+          <nav style="background: rgba(0,0,0,0.7); padding: 10px; display: flex; justify-content: space-between;">
+            <div style="font-weight: bold;">No Mercy</div>
+            <button onclick="handleLogout()" style="padding: 5px 10px; background: #555; color: white; border: none; border-radius: 3px;">
+              Logout
+            </button>
+          </nav>
+          <div style="padding: 20px;">
+            <h1>Welcome, ${user.displayName}</h1>
+            <div>Level: 1 | XP: 0/500</div>
+            <!-- Add more UI elements here -->
+          </div>
+        </div>
+      `;
+    }
+
+    // Auth functions
+    window.handleGoogleLogin = async function() {
+      try {
+        await auth.signInWithPopup(provider);
+      } catch (error) {
+        console.error("Login error:", error);
+      }
+    };
+
+    window.handleLogout = async function() {
+      try {
+        await auth.signOut();
+      } catch (error) {
+        console.error("Logout error:", error);
+      }
+    };
+
+    // Auth state listener
+    auth.onAuthStateChanged((currentUser) => {
+      user = currentUser;
+      if (user) {
+        // Load user data
+        loadUserData();
+      }
+      renderApp();
+    });
+
+    function loadUserData() {
+      // Load data from Firestore
+      db.collection("users").doc(user.uid).get()
+        .then(doc => {
+          if (!doc.exists) {
+            // Initialize new user
+            return db.collection("users").doc(user.uid).set({
+              name: user.displayName,
+              email: user.email,
+              xp: 0,
+              level: 1
+            });
+          }
+        })
+        .catch(error => {
+          console.error("Error loading user data:", error);
+        });
+    }
+
+    // Initial render
+    renderApp();
   </script>
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>
