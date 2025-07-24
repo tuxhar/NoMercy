@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { auth, provider, db } from "./firebaseConfig"; // ✅ Correct filename
+import { auth, provider, db } from "./firebaseConfig"; // Your file name
 import {
   signInWithPopup,
   signOut,
@@ -12,7 +12,7 @@ import {
   updateDoc,
 } from "firebase/firestore";
 
-const forgiveByLevel = {
+const defaultForgiveByLevel = {
   1: 6,
   2: 5,
   3: 4,
@@ -29,151 +29,144 @@ const App = () => {
   const [strictMode, setStrictMode] = useState(false);
 
   const level = Math.floor(xp / 100) + 1;
-  const remainingForgives = forgiveByLevel[level] ?? 0;
+  const availableForgive = defaultForgiveByLevel[level] || 0;
 
-  // 🔄 Restore user state
+  // ✅ Save data to Firestore
+  const saveData = async (updatedTasks, updatedXP) => {
+    if (!user) return;
+    const docRef = doc(db, "users", user.uid);
+    await setDoc(docRef, {
+      tasks: updatedTasks,
+      xp: updatedXP,
+    });
+  };
+
+  // ✅ Load data from Firestore on login
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUser(user);
-        const docRef = doc(db, "users", user.uid);
+    onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        setUser(currentUser);
+        const docRef = doc(db, "users", currentUser.uid);
         const snap = await getDoc(docRef);
+
         if (snap.exists()) {
           const data = snap.data();
           setTasks(data.tasks || {});
           setXp(data.xp || 0);
         } else {
           await setDoc(docRef, { tasks: {}, xp: 0 });
+          setTasks({});
+          setXp(0);
         }
       } else {
         setUser(null);
+        setTasks({});
+        setXp(0);
       }
     });
-    return () => unsubscribe();
   }, []);
 
-  // 🧠 Save data
-  const saveData = async (updatedTasks, updatedXp) => {
-    if (!user) return;
-    await updateDoc(doc(db, "users", user.uid), {
-      tasks: updatedTasks,
-      xp: updatedXp,
-    });
-  };
-
-  const addTask = () => {
+  const handleAddTask = () => {
     if (!input.trim()) return;
-    const newTasks = { ...tasks, [input]: { completed: false, forgives: 0 } };
+    const id = Date.now();
+    const newTasks = {
+      ...tasks,
+      [id]: { text: input, completed: false, forgiven: false },
+    };
+    const newXP = xp;
     setTasks(newTasks);
     setInput("");
-    saveData(newTasks, xp);
+    saveData(newTasks, newXP);
   };
 
-  const completeTask = (task) => {
+  const handleComplete = (id) => {
     const newTasks = { ...tasks };
-    if (!newTasks[task].completed) {
-      newTasks[task].completed = true;
-      const newXp = xp + 10;
+    if (!newTasks[id].completed) {
+      newTasks[id].completed = true;
+      const gainedXP = strictMode ? 0 : 10;
+      const newXP = xp + gainedXP;
       setTasks(newTasks);
-      setXp(newXp);
-      saveData(newTasks, newXp);
+      setXp(newXP);
+      saveData(newTasks, newXP);
     }
   };
 
-  const forgiveTask = (task) => {
+  const handleForgive = (id) => {
+    if (availableForgive <= 0) return;
     const newTasks = { ...tasks };
-    const totalForgivesUsed = Object.values(newTasks).reduce(
-      (acc, t) => acc + (t.forgives || 0),
-      0
-    );
-    if (totalForgivesUsed < remainingForgives) {
-      newTasks[task].completed = true;
-      newTasks[task].forgives = (newTasks[task].forgives || 0) + 1;
+    if (!newTasks[id].completed && !newTasks[id].forgiven) {
+      newTasks[id].forgiven = true;
       setTasks(newTasks);
       saveData(newTasks, xp);
     }
   };
 
-  const handleLogout = async () => {
-    await signOut(auth);
-    setUser(null); // 👈 Brings login screen
+  const handleLogout = () => {
+    signOut(auth);
   };
 
-  if (!user) {
-    return (
-      <div className="p-4 text-center">
-        <h1 className="text-xl font-bold mb-4">No Mercy</h1>
-        <button
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-          onClick={() => signInWithPopup(auth, provider)}
-        >
-          Sign in with Google
-        </button>
-      </div>
-    );
-  }
+  const loginWithGoogle = () => {
+    signInWithPopup(auth, provider);
+  };
 
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Welcome, {user.displayName}</h2>
-        <button onClick={handleLogout} className="text-red-500 underline">
-          Logout
-        </button>
-      </div>
+    <div style={{ padding: "20px" }}>
+      {!user ? (
+        <div>
+          <h2>Login</h2>
+          <button onClick={loginWithGoogle}>Login with Google</button>
+        </div>
+      ) : (
+        <div>
+          <h2>Welcome, {user.displayName}</h2>
+          <p>XP: {xp} | Level: {level} | Forgive left: {availableForgive}</p>
 
-      <div className="mb-4">
-        <p>Level: {level}</p>
-        <p>XP: {xp}</p>
-        <p>Forgives Left: {remainingForgives - Object.values(tasks).reduce((acc, t) => acc + (t.forgives || 0), 0)}</p>
-      </div>
+          <button onClick={handleLogout}>Logout</button>
+          <label style={{ marginLeft: "10px" }}>
+            <input
+              type="checkbox"
+              checked={strictMode}
+              onChange={(e) => setStrictMode(e.target.checked)}
+            />
+            DeathMode (Strict)
+          </label>
 
-      <div className="flex gap-2 mb-4">
-        <input
-          className="border px-2 py-1 w-full"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="New Task"
-        />
-        <button onClick={addTask} className="bg-green-600 text-white px-3 rounded">
-          Add
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        {Object.keys(tasks).map((task) => (
-          <div
-            key={task}
-            className="flex justify-between items-center bg-gray-100 px-3 py-2 rounded"
-          >
-            <span
-              className={`${
-                tasks[task].completed ? "line-through text-gray-500" : ""
-              }`}
-            >
-              {task}
-            </span>
-            <div className="space-x-2">
-              {!tasks[task].completed && (
-                <>
-                  <button
-                    onClick={() => completeTask(task)}
-                    className="bg-blue-500 text-white px-2 py-1 rounded"
-                  >
-                    Done
-                  </button>
-                  <button
-                    onClick={() => forgiveTask(task)}
-                    className="bg-yellow-500 text-white px-2 py-1 rounded"
-                  >
-                    Forgive
-                  </button>
-                </>
-              )}
-            </div>
+          <div style={{ marginTop: "20px" }}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Enter task"
+            />
+            <button onClick={handleAddTask}>Add Task</button>
           </div>
-        ))}
-      </div>
+
+          <ul>
+            {Object.entries(tasks).map(([id, task]) => (
+              <li key={id}>
+                <span
+                  style={{
+                    textDecoration: task.completed
+                      ? "line-through"
+                      : task.forgiven
+                      ? "underline"
+                      : "none",
+                  }}
+                >
+                  {task.text}
+                </span>
+                {!task.completed && (
+                  <>
+                    <button onClick={() => handleComplete(id)}>✓</button>
+                    {!task.forgiven && availableForgive > 0 && (
+                      <button onClick={() => handleForgive(id)}>Forgive</button>
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
