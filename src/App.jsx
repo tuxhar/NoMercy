@@ -38,8 +38,9 @@ const App = () => {
   const [wakeTime, setWakeTime] = useState("06:00");
   const [strictMode, setStrictMode] = useState(false);
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [forgivesLeft, setForgivesLeft] = useState(6);
+  const [loading, setLoading] = useState(true);
 
-  // Load user
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (u) {
@@ -52,23 +53,25 @@ const App = () => {
           setTasks(d.tasks || {});
           setWakeTime(d.wakeTime || "06:00");
           setStrictMode(d.strictMode || false);
+          setForgivesLeft(d.forgivesLeft ?? Math.max(0, 7 - (d.level || 1)));
         }
       }
+      setLoading(false);
     });
   }, []);
 
-  // Save data
   useEffect(() => {
-    if (user) {
+    if (user && !loading) {
       setDoc(doc(db, "users", user.uid), {
         xp,
         level,
         tasks,
         wakeTime,
         strictMode,
+        forgivesLeft
       });
     }
-  }, [xp, level, tasks, wakeTime, strictMode]);
+  }, [xp, level, tasks, wakeTime, strictMode, forgivesLeft, loading]);
 
   const levelCap = 100;
   const progressPercent = ((xp % levelCap) / levelCap) * 100;
@@ -99,6 +102,15 @@ const App = () => {
     if (!task?.done) setXP(prev => prev + 10);
   };
 
+  const forgiveTask = (id) => {
+    if (forgivesLeft <= 0) return;
+    const updated = tasks[selectedDate].map(t =>
+      t.id === id ? { ...t, done: true } : t
+    );
+    setTasks({ ...tasks, [selectedDate]: updated });
+    setForgivesLeft(prev => prev - 1);
+  };
+
   const checkWakeTime = () => {
     const now = new Date();
     const [h, m] = wakeTime.split(":").map(Number);
@@ -107,6 +119,7 @@ const App = () => {
     if (strictMode && now > graceTime) {
       setXP(0);
       setLevel(1);
+      setForgivesLeft(6);
     }
   };
 
@@ -114,6 +127,14 @@ const App = () => {
     const interval = setInterval(checkWakeTime, 60000);
     return () => clearInterval(interval);
   }, [wakeTime, strictMode]);
+
+  useEffect(() => {
+    const newLevel = Math.floor(xp / levelCap) + 1;
+    if (newLevel !== level) {
+      setLevel(newLevel);
+      setForgivesLeft(Math.max(0, 7 - newLevel));
+    }
+  }, [xp]);
 
   return (
     <div className={dark ? "bg-black text-white min-h-screen p-4" : "bg-white text-black min-h-screen p-4"}>
@@ -151,7 +172,7 @@ const App = () => {
                 checked={strictMode}
                 onChange={(e) => setStrictMode(e.target.checked)}
               />
-              Strict Mode
+              Deathmode
             </label>
           </div>
 
@@ -179,16 +200,25 @@ const App = () => {
           <div className="mb-4">
             <h2 className="text-lg font-semibold">Today's Tasks</h2>
             {(tasks[selectedDate] || []).map(task => (
-              <div key={task.id} className="flex justify-between p-2 border-b">
-                <span>{task.title}</span>
+              <div key={task.id} className="flex justify-between items-center p-2 border-b">
                 <div>
-                  <span className="text-xs">{task.time} ({task.duration}m)</span>
+                  <span>{task.title}</span>
+                  <span className="ml-2 text-xs text-gray-500">{task.time} ({task.duration}m)</span>
+                </div>
+                <div className="flex items-center gap-2">
                   <input
                     type="checkbox"
-                    className="ml-2"
                     checked={task.done}
                     onChange={() => toggleTask(task.id)}
                   />
+                  {!task.done && forgivesLeft > 0 && (
+                    <button
+                      className="text-xs text-red-500 underline"
+                      onClick={() => forgiveTask(task.id)}
+                    >
+                      Forgive
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -208,7 +238,8 @@ const App = () => {
             <h2 className="text-xl mb-2">📈 Report</h2>
             <p>Total XP: {xp}</p>
             <p>Level: {level}</p>
-            <p>Strict Mode: {strictMode ? "ON" : "OFF"}</p>
+            <p>Forgives Left: {forgivesLeft}</p>
+            <p>Deathmode: {strictMode ? "ON" : "OFF"}</p>
             <p>Wake Time: {wakeTime}</p>
             <p>Tasks Today: {(tasks[selectedDate] || []).length}</p>
           </div>
