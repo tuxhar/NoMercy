@@ -8,22 +8,15 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
-  
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: url('https://images.alphacoders.com/128/1280491.jpg') no-repeat center center fixed;
-      background-size: cover;
-      color: white;
-    }
-    /* Add your other styles here */
-  </style>
 </head>
 <body>
   <div id="root"></div>
-
-  <script>
+  
+  <script type="module">
+    // Your React app initialization
+    import { createRoot } from 'https://esm.sh/react-dom/client';
+    import React from 'https://esm.sh/react';
+    
     // Firebase configuration
     const firebaseConfig = {
       apiKey: "AIzaSyB3GgAgQvcuWElNsrZ0FaZSSYoPY0tnSTw",
@@ -41,89 +34,37 @@
     const db = firebase.firestore();
     const provider = new firebase.auth.GoogleAuthProvider();
 
-    // Your application logic
-    let user = null;
-    let tasks = {};
-    
-    function renderApp() {
-      const root = document.getElementById('root');
-      if (!user) {
-        root.innerHTML = `
-          <div class="login-screen" style="height: 100vh; display: flex; justify-content: center; align-items: center;">
-            <button onclick="handleGoogleLogin()" style="padding: 12px 24px; background: #4285F4; color: white; border: none; border-radius: 4px; font-size: 16px;">
-              Login with Google
-            </button>
-          </div>
-        `;
-        return;
-      }
+    // Your App component
+    function App() {
+      const [user, setUser] = React.useState(null);
       
-      // Main app UI
-      root.innerHTML = `
-        <div class="app-container">
-          <nav style="background: rgba(0,0,0,0.7); padding: 10px; display: flex; justify-content: space-between;">
-            <div style="font-weight: bold;">No Mercy</div>
-            <button onclick="handleLogout()" style="padding: 5px 10px; background: #555; color: white; border: none; border-radius: 3px;">
-              Logout
-            </button>
-          </nav>
-          <div style="padding: 20px;">
-            <h1>Welcome, ${user.displayName}</h1>
-            <div>Level: 1 | XP: 0/500</div>
-            <!-- Add more UI elements here -->
-          </div>
-        </div>
-      `;
-    }
-
-    // Auth functions
-    window.handleGoogleLogin = async function() {
-      try {
-        await auth.signInWithPopup(provider);
-      } catch (error) {
-        console.error("Login error:", error);
-      }
-    };
-
-    window.handleLogout = async function() {
-      try {
-        await auth.signOut();
-      } catch (error) {
-        console.error("Logout error:", error);
-      }
-    };
-
-    // Auth state listener
-    auth.onAuthStateChanged((currentUser) => {
-      user = currentUser;
-      if (user) {
-        // Load user data
-        loadUserData();
-      }
-      renderApp();
-    });
-
-    function loadUserData() {
-      // Load data from Firestore
-      db.collection("users").doc(user.uid).get()
-        .then(doc => {
-          if (!doc.exists) {
-            // Initialize new user
-            return db.collection("users").doc(user.uid).set({
-              name: user.displayName,
-              email: user.email,
-              xp: 0,
-              level: 1
-            });
-          }
-        })
-        .catch(error => {
-          console.error("Error loading user data:", error);
+      React.useEffect(() => {
+        auth.onAuthStateChanged(user => {
+          setUser(user);
         });
+      }, []);
+
+      if (!user) {
+        return (
+          <button onClick={() => auth.signInWithPopup(provider)}>
+            Login with Google
+          </button>
+        );
+      }
+
+      return (
+        <div>
+          <h1>Welcome {user.displayName}</h1>
+          <button onClick={() => auth.signOut()}>
+            Logout
+          </button>
+        </div>
+      );
     }
 
-    // Initial render
-    renderApp();
+    // Render the app
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
