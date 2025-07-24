@@ -1,50 +1,23 @@
 import React, { useState, useEffect } from "react";
-import { initializeApp } from "firebase/app";
-import {
-  getAuth,
-  signInWithPopup,
-  GoogleAuthProvider,
-  signOut,
-  onAuthStateChanged,
-} from "firebase/auth";
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc
-} from "firebase/firestore";
-
-// Firebase config
-const firebaseConfig = {
-  apiKey: "AIzaSyB3GgAgQvcuWElNsrZ0FaZSSYoPY0tnSTw",
-  authDomain: "no-mercy-28e0a.firebaseapp.com",
-  projectId: "no-mercy-28e0a",
-  storageBucket: "no-mercy-28e0a.appspot.com",
-  messagingSenderId: "353208485106",
-  appId: "1:353208485106:web:bc33f4d201cbfd95f8fc6b"
-};
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+import { auth, db } from "./firebase";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import Login from "./Login";
+import Dashboard from "./Dashboard";
 
 const App = () => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const [dark, setDark] = useState(false);
   const [xp, setXP] = useState(0);
   const [level, setLevel] = useState(1);
-  const [input, setInput] = useState("");
   const [tasks, setTasks] = useState({});
   const [wakeTime, setWakeTime] = useState("06:00");
   const [strictMode, setStrictMode] = useState(false);
   const [forgivesLeft, setForgivesLeft] = useState(6);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(true);
 
-  // Load user and data from Firebase
+  // 🔁 Firebase data restore on login or reload
   useEffect(() => {
-    onAuthStateChanged(auth, async (u) => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
         setUser(u);
         const snap = await getDoc(doc(db, "users", u.uid));
@@ -56,13 +29,26 @@ const App = () => {
           setWakeTime(d.wakeTime || "06:00");
           setStrictMode(d.strictMode || false);
           setForgivesLeft(d.forgivesLeft ?? Math.max(0, 7 - (d.level || 1)));
+        } else {
+          // 👶 First-time user? Create initial data
+          await setDoc(doc(db, "users", u.uid), {
+            xp: 0,
+            level: 1,
+            tasks: {},
+            wakeTime: "06:00",
+            strictMode: false,
+            forgivesLeft: 6,
+          });
         }
+      } else {
+        setUser(null);
       }
       setLoading(false);
     });
+    return () => unsubscribe();
   }, []);
 
-  // Save to Firebase
+  // 💾 Auto-save to Firebase when any state changes
   useEffect(() => {
     if (user && !loading) {
       setDoc(doc(db, "users", user.uid), {
@@ -71,200 +57,46 @@ const App = () => {
         tasks,
         wakeTime,
         strictMode,
-        forgivesLeft
+        forgivesLeft,
       });
     }
   }, [xp, level, tasks, wakeTime, strictMode, forgivesLeft, user, loading]);
 
-  const levelCap = 100;
-  const progressPercent = ((xp % levelCap) / levelCap) * 100;
-
-  const handleAddTask = () => {
-    if (!input.trim()) return;
-    const id = Date.now();
-    const newTask = {
-      id,
-      title: input,
-      time: new Date().toLocaleTimeString([], { hour12: false }),
-      duration: "30",
-      done: false
-    };
-    setTasks(prev => {
-      const list = [...(prev[selectedDate] || []), newTask];
-      return { ...prev, [selectedDate]: list };
-    });
-    setInput("");
+  // 🔓 Logout
+  const handleLogout = async () => {
+    await signOut(auth);
+    setUser(null);
+    setXP(0);
+    setLevel(1);
+    setTasks({});
+    setWakeTime("06:00");
+    setStrictMode(false);
+    setForgivesLeft(6);
   };
 
-  const toggleTask = (id) => {
-    const updated = tasks[selectedDate].map(t =>
-      t.id === id ? { ...t, done: !t.done } : t
-    );
-    setTasks({ ...tasks, [selectedDate]: updated });
-    const task = tasks[selectedDate].find(t => t.id === id);
-    if (!task?.done) setXP(prev => prev + 10);
-  };
+  // ⏳ While Firebase is checking
+  if (loading) return <div className="p-4 text-center">Loading...</div>;
 
-  const forgiveTask = (id) => {
-    if (forgivesLeft <= 0) return;
-    const updated = tasks[selectedDate].map(t =>
-      t.id === id ? { ...t, done: true } : t
-    );
-    setTasks({ ...tasks, [selectedDate]: updated });
-    setForgivesLeft(prev => prev - 1);
-  };
+  // 🔐 Show login page if not signed in
+  if (!user) return <Login />;
 
-  const checkWakeTime = () => {
-    const now = new Date();
-    const [h, m] = wakeTime.split(":").map(Number);
-    const graceTime = new Date();
-    graceTime.setHours(h, m + 10, 0);
-    if (strictMode && now > graceTime) {
-      setXP(0);
-      setLevel(1);
-      setForgivesLeft(6);
-    }
-  };
-
-  useEffect(() => {
-    const interval = setInterval(checkWakeTime, 60000);
-    return () => clearInterval(interval);
-  }, [wakeTime, strictMode]);
-
-  useEffect(() => {
-    const newLevel = Math.floor(xp / levelCap) + 1;
-    if (newLevel !== level) {
-      setLevel(newLevel);
-      setForgivesLeft(Math.max(0, 7 - newLevel));
-    }
-  }, [xp]);
-
-  // Login screen
-  if (!user) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen">
-        <h1 className="text-3xl font-bold mb-4">Welcome to No Mercy</h1>
-        <button
-          onClick={async () => {
-            const provider = new GoogleAuthProvider();
-            const res = await signInWithPopup(auth, provider);
-            setUser(res.user);
-          }}
-          className="px-4 py-2 bg-blue-500 text-white rounded"
-        >
-          Login with Google
-        </button>
-      </div>
-    );
-  }
-
+  // 🧠 Main Dashboard
   return (
-    <div className={dark ? "bg-black text-white min-h-screen p-4" : "bg-white text-black min-h-screen p-4"}>
-      <div className="flex justify-between mb-4">
-        <h1 className="text-2xl font-bold">No Mercy</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setDark(!dark)}>{dark ? "☀️" : "🌙"}</button>
-          <button onClick={async () => {
-            await signOut(auth);
-            setUser(null); // ✅ Force UI reset
-            setXP(0);
-            setLevel(1);
-            setTasks({});
-            setWakeTime("06:00");
-            setStrictMode(false);
-            setForgivesLeft(6);
-          }}>
-            Logout
-          </button>
-        </div>
-      </div>
-
-      <div className="mb-2">
-        <label>Wake-Up Time:</label>
-        <input
-          type="time"
-          value={wakeTime}
-          onChange={(e) => setWakeTime(e.target.value)}
-          className="ml-2"
-        />
-        <label className="ml-4">
-          <input
-            type="checkbox"
-            checked={strictMode}
-            onChange={(e) => setStrictMode(e.target.checked)}
-          />
-          Deathmode
-        </label>
-      </div>
-
-      <div className="mb-2">
-        <label>Date:</label>
-        <input
-          type="date"
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          className="ml-2"
-        />
-      </div>
-
-      <div className="mb-2">
-        <input
-          type="text"
-          value={input}
-          placeholder="Task..."
-          onChange={(e) => setInput(e.target.value)}
-          className="border p-1"
-        />
-        <button onClick={handleAddTask} className="ml-2 px-2 py-1 bg-blue-500 text-white rounded">Add</button>
-      </div>
-
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold">Today's Tasks</h2>
-        {(tasks[selectedDate] || []).map(task => (
-          <div key={task.id} className="flex justify-between items-center p-2 border-b">
-            <div>
-              <span>{task.title}</span>
-              <span className="ml-2 text-xs text-gray-500">{task.time} ({task.duration}m)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={task.done}
-                onChange={() => toggleTask(task.id)}
-              />
-              {!task.done && forgivesLeft > 0 && (
-                <button
-                  className="text-xs text-red-500 underline"
-                  onClick={() => forgiveTask(task.id)}
-                >
-                  Forgive
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mb-4">
-        <p>XP: {xp} | Level: {level}</p>
-        <div className="h-4 bg-gray-300 rounded">
-          <div
-            className="h-4 bg-green-500 transition-all"
-            style={{ width: `${progressPercent}%` }}
-          ></div>
-        </div>
-      </div>
-
-      <div className="bg-gray-100 dark:bg-gray-800 p-4 rounded">
-        <h2 className="text-xl mb-2">📈 Report</h2>
-        <p>Total XP: {xp}</p>
-        <p>Level: {level}</p>
-        <p>Forgives Left: {forgivesLeft}</p>
-        <p>Deathmode: {strictMode ? "ON" : "OFF"}</p>
-        <p>Wake Time: {wakeTime}</p>
-        <p>Tasks Today: {(tasks[selectedDate] || []).length}</p>
-      </div>
-    </div>
+    <Dashboard
+      xp={xp}
+      setXP={setXP}
+      level={level}
+      setLevel={setLevel}
+      tasks={tasks}
+      setTasks={setTasks}
+      wakeTime={wakeTime}
+      setWakeTime={setWakeTime}
+      strictMode={strictMode}
+      setStrictMode={setStrictMode}
+      forgivesLeft={forgivesLeft}
+      setForgivesLeft={setForgivesLeft}
+      onLogout={handleLogout}
+    />
   );
 };
 
